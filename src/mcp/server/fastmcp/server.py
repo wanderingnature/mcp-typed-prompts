@@ -1,6 +1,5 @@
 """FastMCP - A more ergonomic interface for MCP servers."""
 
-import functools
 import inspect
 import json
 import re
@@ -305,9 +304,19 @@ class FastMCP:
             def get_data() -> str:
                 return "Hello, world!"
 
+            @server.resource("resource://my-resource")
+            async get_data() -> str:
+                data = await fetch_data()
+                return f"Hello, world! {data}"
+
             @server.resource("resource://{city}/weather")
             def get_weather(city: str) -> str:
                 return f"Weather for {city}"
+
+            @server.resource("resource://{city}/weather")
+            async def get_weather(city: str) -> str:
+                data = await fetch_weather(city)
+                return f"Weather for {city}: {data}"
         """
         # Check if user passed function directly instead of calling decorator
         if callable(uri):
@@ -317,10 +326,6 @@ class FastMCP:
             )
 
         def decorator(fn: Callable) -> Callable:
-            @functools.wraps(fn)
-            def wrapper(*args: Any, **kwargs: Any) -> Any:
-                return fn(*args, **kwargs)
-
             # Check if this should be a template
             has_uri_params = "{" in uri and "}" in uri
             has_func_params = bool(inspect.signature(fn).parameters)
@@ -338,7 +343,7 @@ class FastMCP:
 
                 # Register as template
                 self._resource_manager.add_template(
-                    wrapper,
+                    fn=fn,
                     uri_template=uri,
                     name=name,
                     description=description,
@@ -351,10 +356,10 @@ class FastMCP:
                     name=name,
                     description=description,
                     mime_type=mime_type or "text/plain",
-                    fn=wrapper,
+                    fn=fn,
                 )
                 self.add_resource(resource)
-            return wrapper
+            return fn
 
         return decorator
 

@@ -433,72 +433,76 @@ class Server:
 
                     match message:
                         case RequestResponder(request=types.ClientRequest(root=req)):
-                            logger.info(
-                                f"Processing request of type {type(req).__name__}"
+                            await self._handle_request(
+                                message, req, session, raise_exceptions
                             )
-                            if type(req) in self.request_handlers:
-                                handler = self.request_handlers[type(req)]
-                                logger.debug(
-                                    f"Dispatching request of type {type(req).__name__}"
-                                )
-
-                                token = None
-                                try:
-                                    # Set our global state that can be retrieved via
-                                    # app.get_request_context()
-                                    token = request_ctx.set(
-                                        RequestContext(
-                                            message.request_id,
-                                            message.request_meta,
-                                            session,
-                                        )
-                                    )
-                                    response = await handler(req)
-                                except McpError as err:
-                                    response = err.error
-                                except Exception as err:
-                                    if raise_exceptions:
-                                        raise err
-                                    response = types.ErrorData(
-                                        code=0, message=str(err), data=None
-                                    )
-                                finally:
-                                    # Reset the global state after we are done
-                                    if token is not None:
-                                        request_ctx.reset(token)
-
-                                await message.respond(response)
-                            else:
-                                await message.respond(
-                                    types.ErrorData(
-                                        code=types.METHOD_NOT_FOUND,
-                                        message="Method not found",
-                                    )
-                                )
-
-                            logger.debug("Response sent")
                         case types.ClientNotification(root=notify):
-                            if type(notify) in self.notification_handlers:
-                                assert type(notify) in self.notification_handlers
-
-                                handler = self.notification_handlers[type(notify)]
-                                logger.debug(
-                                    f"Dispatching notification of type "
-                                    f"{type(notify).__name__}"
-                                )
-
-                                try:
-                                    await handler(notify)
-                                except Exception as err:
-                                    logger.error(
-                                        f"Uncaught exception in notification handler: "
-                                        f"{err}"
-                                    )
+                            await self._handle_notification(notify)
 
                     for warning in w:
                         logger.info(
                             f"Warning: {warning.category.__name__}: {warning.message}"
                         )
+
+    async def _handle_request(
+        self,
+        message: RequestResponder,
+        req: Any,
+        session: ServerSession,
+        raise_exceptions: bool,
+    ):
+        logger.info(f"Processing request of type {type(req).__name__}")
+        if type(req) in self.request_handlers:
+            handler = self.request_handlers[type(req)]
+            logger.debug(f"Dispatching request of type {type(req).__name__}")
+
+            token = None
+            try:
+                # Set our global state that can be retrieved via
+                # app.get_request_context()
+                token = request_ctx.set(
+                    RequestContext(
+                        message.request_id,
+                        message.request_meta,
+                        session,
+                    )
+                )
+                response = await handler(req)
+            except McpError as err:
+                response = err.error
+            except Exception as err:
+                if raise_exceptions:
+                    raise err
+                response = types.ErrorData(code=0, message=str(err), data=None)
+            finally:
+                # Reset the global state after we are done
+                if token is not None:
+                    request_ctx.reset(token)
+
+            await message.respond(response)
+        else:
+            await message.respond(
+                types.ErrorData(
+                    code=types.METHOD_NOT_FOUND,
+                    message="Method not found",
+                )
+            )
+
+        logger.debug("Response sent")
+
+    async def _handle_notification(self, notify: Any):
+        if type(notify) in self.notification_handlers:
+            assert type(notify) in self.notification_handlers
+
+            handler = self.notification_handlers[type(notify)]
+            logger.debug(
+                f"Dispatching notification of type " f"{type(notify).__name__}"
+            )
+
+            try:
+                await handler(notify)
+            except Exception as err:
+                logger.error(f"Uncaught exception in notification handler: " f"{err}")
 
 
 async def _ping_handler(request: types.PingRequest) -> types.ServerResult:

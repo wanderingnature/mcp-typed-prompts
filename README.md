@@ -249,7 +249,7 @@ mcp install server.py
 mcp install server.py --name "My Analytics Server"
 
 # Environment variables
-mcp install server.py -e API_KEY=abc123 -e DB_URL=postgres://...
+mcp install server.py -v API_KEY=abc123 -v DB_URL=postgres://...
 mcp install server.py -f .env
 ```
 

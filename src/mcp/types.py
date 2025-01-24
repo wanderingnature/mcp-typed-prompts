@@ -1,4 +1,4 @@
-from typing import Any, Generic, Literal, TypeVar
+from typing import Annotated, Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
 from pydantic.networks import AnyUrl
@@ -25,6 +25,8 @@ LATEST_PROTOCOL_VERSION = "2024-11-05"
 
 ProgressToken = str | int
 Cursor = str
+Role = Literal["user", "assistant"]
+RequestId = str | int
 
 
 class RequestParams(BaseModel):
@@ -99,9 +101,6 @@ class PaginatedResult(Result):
     An opaque token representing the pagination position after the last returned result.
     If present, there may be more results available.
     """
-
-
-RequestId = str | int
 
 
 class JSONRPCRequest(Request):
@@ -344,6 +343,12 @@ class ListResourcesRequest(PaginatedRequest):
     params: RequestParams | None = None
 
 
+class Annotations(BaseModel):
+    audience: list[Role] | None = None
+    priority: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    model_config = ConfigDict(extra="allow")
+
+
 class Resource(BaseModel):
     """A known resource that the server is capable of reading."""
 
@@ -355,6 +360,14 @@ class Resource(BaseModel):
     """A description of what this resource represents."""
     mimeType: str | None = None
     """The MIME type of this resource, if known."""
+    size: int | None = None
+    """
+    The size of the raw resource content, in bytes (i.e., before base64 encoding
+    or any tokenization), if known.
+
+    This can be used by Hosts to display file sizes and estimate context window usage.
+    """
+    annotations: Annotations | None = None
     model_config = ConfigDict(extra="allow")
 
 
@@ -375,6 +388,7 @@ class ResourceTemplate(BaseModel):
     The MIME type for all resources that match this template. This should only be
     included if all resources matching this template have the same type.
     """
+    annotations: Annotations | None = None
     model_config = ConfigDict(extra="allow")
 
 
@@ -580,6 +594,7 @@ class TextContent(BaseModel):
     type: Literal["text"]
     text: str
     """The text content of the message."""
+    annotations: Annotations | None = None
     model_config = ConfigDict(extra="allow")
 
 
@@ -594,10 +609,8 @@ class ImageContent(BaseModel):
     The MIME type of the image. Different providers may support different
     image types.
     """
+    annotations: Annotations | None = None
     model_config = ConfigDict(extra="allow")
-
-
-Role = Literal["user", "assistant"]
 
 
 class SamplingMessage(BaseModel):
@@ -618,6 +631,7 @@ class EmbeddedResource(BaseModel):
 
     type: Literal["resource"]
     resource: TextResourceContents | BlobResourceContents
+    annotations: Annotations | None = None
     model_config = ConfigDict(extra="allow")
 
 
@@ -979,6 +993,26 @@ class RootsListChangedNotification(Notification):
     params: NotificationParams | None = None
 
 
+class CancelledNotificationParams(NotificationParams):
+    """Parameters for cancellation notifications."""
+
+    requestId: RequestId
+    """The ID of the request to cancel."""
+    reason: str | None = None
+    """An optional string describing the reason for the cancellation."""
+    model_config = ConfigDict(extra="allow")
+
+
+class CancelledNotification(Notification):
+    """
+    This notification can be sent by either side to indicate that it is cancelling a
+    previously-issued request.
+    """
+
+    method: Literal["notifications/cancelled"]
+    params: CancelledNotificationParams
+
+
 class ClientRequest(
     RootModel[
         PingRequest
@@ -1001,7 +1035,10 @@ class ClientRequest(
 
 class ClientNotification(
     RootModel[
-        ProgressNotification | InitializedNotification | RootsListChangedNotification
+        CancelledNotification
+        | ProgressNotification
+        | InitializedNotification
+        | RootsListChangedNotification
     ]
 ):
     pass
@@ -1017,7 +1054,8 @@ class ServerRequest(RootModel[PingRequest | CreateMessageRequest | ListRootsRequ
 
 class ServerNotification(
     RootModel[
-        ProgressNotification
+        CancelledNotification
+        | ProgressNotification
         | LoggingMessageNotification
         | ResourceUpdatedNotification
         | ResourceListChangedNotification
